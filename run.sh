@@ -31,7 +31,7 @@ python main/text_enhancement.py
 
 # Step 7: Doing Ocr 
 echo "Ocr ... "
-bash ocr.sh
+bash main/ocr.sh
 
 # Step 8: Combine Ocr Done Pdf's
  echo "Combining Ocr Done Pdfs"

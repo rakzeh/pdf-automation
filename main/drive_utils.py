@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -42,9 +43,6 @@ os.makedirs(LOCAL_PDF_DIR, exist_ok=True)
 def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
     """
     Checks if a folder exists in Google Drive; creates it if not.
-    :param folder_name: Name of the folder.
-    :param parent_folder_id: Parent folder ID where this folder should be created.
-    :return: Folder ID of the existing or newly created folder.
     """
     query = f"'{parent_folder_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
     response = service.files().list(q=query, fields="files(id)").execute()
@@ -53,7 +51,6 @@ def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
     if folders:
         return folders[0]["id"]  # Folder exists, return its ID
 
-    # Create a new folder
     folder_metadata = {
         "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
@@ -63,16 +60,12 @@ def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
     return folder.get("id")
 
 
-def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR):
-    """
-    Downloads a specific file from Google Drive to a local directory.
-    :param file_name: The name of the file to download.
-    :param local_dir: Local directory to save the file.
-    """
+def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR, retries=3):
+    """Downloads a specific file from Google Drive."""
     query = f"'{FOLDER_ID}' in parents and name='{file_name}'"
     results = service.files().list(q=query, fields="files(id, name)").execute()
-
     files = results.get("files", [])
+
     if not files:
         print(f"⚠️ File {file_name} not found in Google Drive.")
         return
@@ -80,25 +73,23 @@ def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR):
     file_id = files[0]["id"]
     file_path = os.path.join(local_dir, file_name)
 
-    try:
-        request = service.files().get_media(fileId=file_id)
-        with open(file_path, "wb") as file:
-            file.write(request.execute())
-        print(f"✅ Downloaded {file_name} from Google Drive to {file_path}")
-    except HttpError as error:
-        print(f"❌ Error downloading {file_name}: {error}")
+    for attempt in range(retries):
+        try:
+            request = service.files().get_media(fileId=file_id)
+            with open(file_path, "wb") as file:
+                file.write(request.execute())
+            print(f"✅ Downloaded {file_name} to {file_path}")
+            return
+        except HttpError as error:
+            print(
+                f"❌ Error downloading {file_name} (attempt {attempt+1}/{retries}): {error}"
+            )
+            time.sleep(2**attempt)  # Exponential backoff
 
 
-def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID):
-    """
-    Uploads a file to Google Drive inside a specified folder.
-    :param file_path: Local file path to upload.
-    :param folder_name: Optional name of the folder inside Google Drive.
-    :param parent_folder_id: Parent folder ID where the file will be uploaded.
-    """
+def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID, retries=3):
+    """Uploads a file to Google Drive inside a specified folder."""
     file_name = os.path.basename(file_path)
-
-    # Determine MIME type based on file extension
     mime_types = {
         ".pdf": "application/pdf",
         ".png": "image/png",
@@ -110,31 +101,28 @@ def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID):
         os.path.splitext(file_name)[1], "application/octet-stream"
     )
 
-    # Get or create the subfolder in Google Drive
     if folder_name:
         parent_folder_id = get_or_create_folder(folder_name, parent_folder_id)
 
     file_metadata = {"name": file_name, "parents": [parent_folder_id]}
     media = MediaFileUpload(file_path, mimetype=mime_type)
 
-    try:
-        uploaded_file = (
-            service.files().create(body=file_metadata, media_body=media).execute()
-        )
-        print(
-            f"✅ Uploaded {file_name} to Google Drive in {folder_name or 'root'} (File ID: {uploaded_file.get('id')})"
-        )
-    except HttpError as error:
-        print(f"❌ Failed to upload {file_name}: {error}")
+    for attempt in range(retries):
+        try:
+            uploaded_file = (
+                service.files().create(body=file_metadata, media_body=media).execute()
+            )
+            print(
+                f"✅ Uploaded {file_name} to Google Drive in {folder_name or 'root'} (File ID: {uploaded_file.get('id')})"
+            )
+            return
+        except HttpError as error:
+            print(f"❌ Upload failed (attempt {attempt+1}/{retries}): {error}")
+            time.sleep(2**attempt)  # Exponential backoff
 
 
 def upload_folder_to_drive(local_folder, drive_folder_name, parent_folder_id=FOLDER_ID):
-    """
-    Uploads all files in a local folder to Google Drive under a specific folder.
-    :param local_folder: Path to the local folder to upload.
-    :param drive_folder_name: Name of the folder in Google Drive.
-    :param parent_folder_id: Parent folder ID where the folder will be created.
-    """
+    """Uploads all files in a local folder to Google Drive under a specific folder."""
     if not os.path.exists(local_folder):
         print(f"⚠️ Local folder '{local_folder}' does not exist. Skipping upload.")
         return
@@ -158,11 +146,7 @@ def upload_folder_to_drive(local_folder, drive_folder_name, parent_folder_id=FOL
 
 
 def delete_file_from_drive(file_name, parent_folder_id=FOLDER_ID):
-    """
-    Deletes a file from Google Drive by name.
-    :param file_name: The name of the file to delete.
-    :param parent_folder_id: The parent folder ID in Google Drive.
-    """
+    """Deletes a file from Google Drive."""
     query = f"'{parent_folder_id}' in parents and name='{file_name}'"
     results = service.files().list(q=query, fields="files(id)").execute()
     files = results.get("files", [])
@@ -176,24 +160,3 @@ def delete_file_from_drive(file_name, parent_folder_id=FOLDER_ID):
         print(f"🗑️ Deleted {file_name} from Google Drive.")
     except HttpError as error:
         print(f"❌ Failed to delete {file_name}: {error}")
-
-
-def delete_folder_from_drive(folder_name, parent_folder_id=FOLDER_ID):
-    """
-    Deletes a folder and all its contents from Google Drive.
-    :param folder_name: The name of the folder to delete.
-    :param parent_folder_id: The parent folder ID in Google Drive.
-    """
-    query = f"'{parent_folder_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
-    results = service.files().list(q=query, fields="files(id)").execute()
-    folders = results.get("files", [])
-
-    if not folders:
-        print(f"⚠️ Folder '{folder_name}' not found in Google Drive.")
-        return
-
-    try:
-        service.files().delete(fileId=folders[0]["id"]).execute()
-        print(f"🗑️ Deleted folder '{folder_name}' from Google Drive.")
-    except HttpError as error:
-        print(f"❌ Failed to delete folder '{folder_name}': {error}")
