@@ -3,7 +3,7 @@ import os
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 # Load service account credentials from environment variable
 SERVICE_ACCOUNT_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT")
@@ -39,11 +39,11 @@ if not os.path.exists(LOCAL_PDF_DIR):
     os.makedirs(LOCAL_PDF_DIR)
 
 
-def download_from_drive(file_name):
+def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR):
     """
-    Downloads a specific file from Google Drive to GitHub repo.
-
+    Downloads a specific file from Google Drive to a local directory.
     :param file_name: The name of the file to download.
+    :param local_dir: Local directory to save the file.
     """
     query = f"'{FOLDER_ID}' in parents and name='{file_name}'"
     results = service.files().list(q=query, fields="files(id, name)").execute()
@@ -54,26 +54,36 @@ def download_from_drive(file_name):
         return
 
     file_id = files[0]["id"]
-    file_path = os.path.join(LOCAL_PDF_DIR, file_name)
+    file_path = os.path.join(local_dir, file_name)
 
-    # Download the file
     request = service.files().get_media(fileId=file_id)
-    with open(file_path, "wb") as pdf_file:
-        pdf_file.write(request.execute())
+    with open(file_path, "wb") as file:
+        file.write(request.execute())
 
     print(f"✅ Downloaded {file_name} from Google Drive to {file_path}")
 
 
-def upload_to_drive(file_path):
+def upload_to_drive(file_path, parent_folder_id=FOLDER_ID):
     """
-    Uploads a file from GitHub repo to Google Drive.
-
+    Uploads a file to Google Drive.
     :param file_path: Local file path to upload.
+    :param parent_folder_id: Google Drive folder ID where the file will be uploaded.
     """
     file_name = os.path.basename(file_path)
+    mime_type = "application/octet-stream"  # Default MIME type
 
-    file_metadata = {"name": file_name, "parents": [FOLDER_ID]}
-    media = http.MediaFileUpload(file_path, mimetype="image/png")
+    # Determine MIME type based on file extension
+    if file_name.endswith(".pdf"):
+        mime_type = "application/pdf"
+    elif file_name.endswith(".png"):
+        mime_type = "image/png"
+    elif file_name.endswith(".jpg") or file_name.endswith(".jpeg"):
+        mime_type = "image/jpeg"
+    elif file_name.endswith(".txt"):
+        mime_type = "text/plain"
+
+    file_metadata = {"name": file_name, "parents": [parent_folder_id]}
+    media = MediaFileUpload(file_path, mimetype=mime_type)
 
     uploaded_file = (
         service.files().create(body=file_metadata, media_body=media).execute()
