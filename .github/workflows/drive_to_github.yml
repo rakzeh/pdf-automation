@@ -11,19 +11,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Poppler
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils
+          sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin ghostscript qpdf jbig2enc libjbig2dec0 libffi-dev libssl-dev python3-dev
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
-        run: |
-          pip install -r requirements.txt
+      - name: Install Python Dependencies
+        run: pip install -r requirements.txt
 
       - name: Run Sync Script
         env:

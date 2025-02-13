@@ -4,3 +4,7 @@ google-auth-httplib2
 google-api-python-client
 PyMuPDF
 pdf2image
+opencv-python
+numpy
+scikit-image
+
