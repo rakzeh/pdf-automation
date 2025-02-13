@@ -24,7 +24,7 @@ with open(SERVICE_ACCOUNT_FILE, "w") as f:
     f.write(SERVICE_ACCOUNT_JSON)
 
 # Directory to store downloaded PDFs
-PDF_DIR = "pdfs"
+PDF_DIR = "main/pdfs"
 
 # Authenticate and create the Drive API service
 SCOPES = ["https://www.googleapis.com/auth/drive"]
