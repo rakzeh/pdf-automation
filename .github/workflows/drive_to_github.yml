@@ -24,7 +24,7 @@ jobs:
         env:
           GDRIVE_SERVICE_ACCOUNT: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-        run: python drive_to_github.py
+        run: python main/drive_to_github.py
 
       - name: Commit and Push Changes
         run: |
