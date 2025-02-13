@@ -36,4 +36,3 @@ jobs:
           git add pdfs/
           git commit -m "📄 Synced new PDFs from Google Drive" || echo "No changes to commit"
           git push
-         git push origin main
