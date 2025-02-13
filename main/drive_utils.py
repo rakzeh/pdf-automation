@@ -3,6 +3,7 @@ import os
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 # Load service account credentials from environment variable
@@ -39,6 +40,35 @@ if not os.path.exists(LOCAL_PDF_DIR):
     os.makedirs(LOCAL_PDF_DIR)
 
 
+def get_or_create_folder(folder_name, parent_folder_id=None):
+    """
+    Checks if a folder exists in Google Drive; creates it if not.
+    :param folder_name: Name of the folder.
+    :param parent_folder_id: Parent folder ID where this folder should be created.
+    :return: Folder ID of the existing or newly created folder.
+    """
+    query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
+    if parent_folder_id:
+        query += f" and '{parent_folder_id}' in parents"
+
+    response = service.files().list(q=query, fields="files(id)").execute()
+    folders = response.get("files", [])
+
+    if folders:
+        return folders[0]["id"]  # Folder exists, return its ID
+
+    # Create a new folder
+    folder_metadata = {
+        "name": folder_name,
+        "mimeType": "application/vnd.google-apps.folder",
+    }
+    if parent_folder_id:
+        folder_metadata["parents"] = [parent_folder_id]
+
+    folder = service.files().create(body=folder_metadata, fields="id").execute()
+    return folder.get("id")  # Return the newly created folder's ID
+
+
 def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR):
     """
     Downloads a specific file from Google Drive to a local directory.
@@ -63,11 +93,12 @@ def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR):
     print(f"✅ Downloaded {file_name} from Google Drive to {file_path}")
 
 
-def upload_to_drive(file_path, parent_folder_id=FOLDER_ID):
+def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID):
     """
-    Uploads a file to Google Drive.
+    Uploads a file to Google Drive inside a specified folder.
     :param file_path: Local file path to upload.
-    :param parent_folder_id: Google Drive folder ID where the file will be uploaded.
+    :param folder_name: Optional name of the folder inside Google Drive.
+    :param parent_folder_id: Parent folder ID where the file will be uploaded.
     """
     file_name = os.path.basename(file_path)
     mime_type = "application/octet-stream"  # Default MIME type
@@ -82,12 +113,19 @@ def upload_to_drive(file_path, parent_folder_id=FOLDER_ID):
     elif file_name.endswith(".txt"):
         mime_type = "text/plain"
 
+    # Get or create a folder inside Google Drive
+    if folder_name:
+        parent_folder_id = get_or_create_folder(folder_name, parent_folder_id)
+
     file_metadata = {"name": file_name, "parents": [parent_folder_id]}
     media = MediaFileUpload(file_path, mimetype=mime_type)
 
-    uploaded_file = (
-        service.files().create(body=file_metadata, media_body=media).execute()
-    )
-    print(
-        f"✅ Uploaded {file_name} to Google Drive (File ID: {uploaded_file.get('id')})"
-    )
+    try:
+        uploaded_file = (
+            service.files().create(body=file_metadata, media_body=media).execute()
+        )
+        print(
+            f"✅ Uploaded {file_name} to Google Drive in {folder_name or 'root'} (File ID: {uploaded_file.get('id')})"
+        )
+    except HttpError as error:
+        print(f"❌ Failed to upload {file_name}: {error}")
