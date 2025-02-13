@@ -1,11 +1,10 @@
 import gc
 import logging
-import multiprocessing as mp
 import os
+import time
 
 import cv2
 import numpy as np
-
 from drive_utils import get_or_create_folder, upload_to_drive
 
 # Configure logging
@@ -21,116 +20,122 @@ output_folder = os.path.join(pdf_folder, "text_enhanced_images_600dpi")
 # Ensure output folder exists
 os.makedirs(output_folder, exist_ok=True)
 
+# Create a folder in Google Drive for enhanced images
+enhanced_images_folder_id = get_or_create_folder(
+    "Text_Enhanced_Images_600dpi", parent_folder_id=os.getenv("GDRIVE_FOLDER_ID")
+)
 
-def enhance_image(image_file, drive_folder_id):
-    """Enhances text in the image by applying contrast adjustment, denoising, sharpening, and binarization."""
+
+def enhance_image(image_file, retries=3, delay=2):
+    """Enhances text in the image, retries on failure, and uploads if successful."""
     input_image_path = os.path.join(input_folder, image_file)
-    img = cv2.imread(
-        input_image_path, cv2.IMREAD_GRAYSCALE
-    )  # Load directly in grayscale
-    if img is None:
-        logging.warning(f"❌ Failed to load image: {input_image_path}")
-        return
+    output_path = os.path.join(output_folder, image_file)
 
-    filename = os.path.basename(input_image_path)
-    logging.info(f"🖼️ Processing Image: {filename}")
+    for attempt in range(1, retries + 1):
+        img = cv2.imread(input_image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            logging.warning(f"❌ Failed to load image: {input_image_path}")
+            return False  # Skip this image
 
-    try:
-        # Gamma correction for contrast enhancement
-        gamma = 0.6
-        inv_gamma = 1.0 / gamma
-        table = np.array(
-            [((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]
-        ).astype("uint8")
-        gamma_corrected = cv2.LUT(img, table)
+        logging.info(f"🖼️ Processing Image ({attempt}/{retries}): {image_file}")
 
-        # Advanced denoising
-        denoised = cv2.fastNlMeansDenoising(
-            gamma_corrected, h=10, templateWindowSize=11, searchWindowSize=25
-        )
+        try:
+            # Gamma correction
+            gamma = 0.6
+            inv_gamma = 1.0 / gamma
+            table = np.array(
+                [((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]
+            ).astype("uint8")
+            gamma_corrected = cv2.LUT(img, table)
 
-        # Contrast Limited Adaptive Histogram Equalization (CLAHE)
-        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(16, 16))
-        clahe_img = clahe.apply(denoised)
+            # Advanced denoising
+            denoised = cv2.fastNlMeansDenoising(
+                gamma_corrected, h=10, templateWindowSize=11, searchWindowSize=25
+            )
 
-        # Sharpening using unsharp masking
-        gaussian_blur = cv2.GaussianBlur(clahe_img, (0, 0), 3.0)
-        sharpened = cv2.addWeighted(clahe_img, 2.2, gaussian_blur, -1.2, 0)
+            # CLAHE
+            clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(16, 16))
+            clahe_img = clahe.apply(denoised)
 
-        # Adaptive thresholding for binarization
-        binary = cv2.adaptiveThreshold(
-            sharpened,
-            255,
-            cv2.ADAPTIVE_THRESH_MEAN_C,
-            cv2.THRESH_BINARY_INV,
-            blockSize=43,
-            C=8,
-        )
+            # Sharpening
+            gaussian_blur = cv2.GaussianBlur(clahe_img, (0, 0), 3.0)
+            sharpened = cv2.addWeighted(clahe_img, 2.2, gaussian_blur, -1.2, 0)
 
-        # Morphological operations for text thickening
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        thickened = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
-        thickened = cv2.dilate(thickened, kernel, iterations=1)
+            # Adaptive thresholding
+            binary = cv2.adaptiveThreshold(
+                sharpened,
+                255,
+                cv2.ADAPTIVE_THRESH_MEAN_C,
+                cv2.THRESH_BINARY_INV,
+                blockSize=43,
+                C=8,
+            )
 
-        # Final noise removal and inversion
-        final_img = cv2.medianBlur(thickened, 5)
-        final_img = cv2.bitwise_not(final_img)
+            # Morphological operations
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            thickened = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
+            thickened = cv2.dilate(thickened, kernel, iterations=1)
 
-        # Save processed image
-        output_path = os.path.join(
-            output_folder, os.path.splitext(filename)[0] + ".png"
-        )
-        cv2.imwrite(output_path, final_img, [cv2.IMWRITE_PNG_COMPRESSION, 8])
+            # Final noise removal and inversion
+            final_img = cv2.medianBlur(thickened, 5)
+            final_img = cv2.bitwise_not(final_img)
 
-        logging.info(f"✅ Saved Enhanced Image: {filename}")
+            # Save processed image
+            cv2.imwrite(output_path, final_img, [cv2.IMWRITE_PNG_COMPRESSION, 8])
 
-        # Upload processed image to Google Drive
-        upload_to_drive(output_path, folder_name=None, parent_folder_id=drive_folder_id)
+            logging.info(f"✅ Saved Enhanced Image: {image_file}")
 
-    except Exception as e:
-        logging.error(f"🔥 Error processing {filename}: {str(e)}")
+            # Upload to Google Drive
+            upload_to_drive(output_path, folder_name="Text_Enhanced_Images_600dpi")
 
-    finally:
-        # Memory cleanup
-        del (
-            img,
-            gamma_corrected,
-            denoised,
-            clahe_img,
-            sharpened,
-            binary,
-            thickened,
-            final_img,
-        )
-        gc.collect()
+            return True  # Success
+
+        except Exception as e:
+            logging.error(
+                f"🔥 Error processing {image_file} (Attempt {attempt}): {str(e)}"
+            )
+            time.sleep(delay)  # Wait before retrying
+
+        finally:
+            # Memory cleanup
+            del (
+                img,
+                gamma_corrected,
+                denoised,
+                clahe_img,
+                sharpened,
+                binary,
+                thickened,
+                final_img,
+            )
+            gc.collect()
+
+    logging.error(f"❌ Skipping {image_file} after {retries} failed attempts.")
+    return False  # Skip this image after multiple failures
 
 
 if __name__ == "__main__":
-    image_files = [
-        f
-        for f in os.listdir(input_folder)
-        if f.lower().endswith((".png", ".jpg", ".jpeg"))
-    ]
+    image_files = sorted(
+        [
+            f
+            for f in os.listdir(input_folder)
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        ]
+    )
 
     if image_files:
-        logging.info(
-            f"📂 Found {len(image_files)} images. Processing with {mp.cpu_count()//2} cores..."
-        )
+        logging.info(f"📂 Found {len(image_files)} images. Processing one by one...")
 
-        # Create a folder in Google Drive for the enhanced images
-        enhanced_images_folder_id = get_or_create_folder(
-            "Text_Enhanced_Images_600dpi",
-            parent_folder_id=os.getenv("GDRIVE_FOLDER_ID"),
-        )
+        for image in image_files:
+            success = enhance_image(image)
 
-        # Process images using multiprocessing
-        with mp.Pool(processes=mp.cpu_count() // 2) as pool:
-            pool.starmap(
-                enhance_image, [(img, enhanced_images_folder_id) for img in image_files]
-            )
+            if not success:
+                logging.warning(f"⚠️ Skipped {image} after retries.")
+
+            time.sleep(1)  # Small delay before processing the next image
 
         logging.info(
-            f"🎉 Enhancement complete! Results saved to {output_folder} and uploaded to Google Drive."
+            f"🎉 Enhancement complete! Results saved to {output_folder} and uploaded."
         )
     else:
         logging.warning("⚠️ No images found in input directory.")
