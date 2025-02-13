@@ -12,7 +12,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Poppler
-        uses: sudo apt-get update && sudo apt-get install -y poppler-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
 
       - name: Setup Python
         uses: actions/setup-python@v5
