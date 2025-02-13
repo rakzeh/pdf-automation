@@ -41,3 +41,19 @@ jobs:
           git add main/pdfs/
           git commit -m "📄 Synced new PDFs from Google Drive" || echo "No changes to commit"
           git push
+
+      - name: 🔥 Delete Synced Files from Repository
+        run: |
+          rm -rf main/pdfs/
+          echo "🗑️ Removed main/pdfs/ after syncing"
+
+      - name: Commit and Push Cleanup
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git pull origin main --rebase
+          git add -A
+          git commit -m "🧹 Removed PDFs and converted images after syncing" || echo "No changes to commit"
+          git push
