@@ -30,6 +30,7 @@ jobs:
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/rakzeh/pdf-automation.git
           git add pdfs/
           git commit -m "📄 Synced new PDFs from Google Drive" || echo "No changes to commit"
           git push
