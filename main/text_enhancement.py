@@ -5,10 +5,8 @@ import os
 
 import cv2
 import numpy as np
-from drive_utils import (
-    get_or_create_folder,  # ✅ Use correct function name
-    upload_to_drive,
-)
+
+from drive_utils import get_or_create_folder, upload_to_drive
 
 # Configure logging
 logging.basicConfig(
@@ -24,7 +22,7 @@ output_folder = os.path.join(pdf_folder, "text_enhanced_images_600dpi")
 os.makedirs(output_folder, exist_ok=True)
 
 
-def enhance_image(image_file):
+def enhance_image(image_file, drive_folder_id):
     """Enhances text in the image by applying contrast adjustment, denoising, sharpening, and binarization."""
     input_image_path = os.path.join(input_folder, image_file)
     img = cv2.imread(
@@ -87,7 +85,7 @@ def enhance_image(image_file):
         logging.info(f"✅ Saved Enhanced Image: {filename}")
 
         # Upload processed image to Google Drive
-        upload_to_drive(output_path, folder_name="Text_Enhanced_Images_600dpi")
+        upload_to_drive(output_path, folder_name=None, parent_folder_id=drive_folder_id)
 
     except Exception as e:
         logging.error(f"🔥 Error processing {filename}: {str(e)}")
@@ -120,14 +118,16 @@ if __name__ == "__main__":
         )
 
         # Create a folder in Google Drive for the enhanced images
-        enhanced_images_folder_id = get_or_create_folder(  # ✅ Use correct function
+        enhanced_images_folder_id = get_or_create_folder(
             "Text_Enhanced_Images_600dpi",
             parent_folder_id=os.getenv("GDRIVE_FOLDER_ID"),
         )
 
         # Process images using multiprocessing
         with mp.Pool(processes=mp.cpu_count() // 2) as pool:
-            pool.map(enhance_image, image_files)
+            pool.starmap(
+                enhance_image, [(img, enhanced_images_folder_id) for img in image_files]
+            )
 
         logging.info(
             f"🎉 Enhancement complete! Results saved to {output_folder} and uploaded to Google Drive."

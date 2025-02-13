@@ -5,7 +5,7 @@ import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaFileUpload
 
 # Load service account credentials from environment variable
 SERVICE_ACCOUNT_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT")
@@ -41,55 +41,67 @@ os.makedirs(LOCAL_PDF_DIR, exist_ok=True)
 
 
 def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
-    """
-    Checks if a folder exists in Google Drive; creates it if not.
-    """
+    """Checks if a folder exists in Google Drive; creates it if not."""
     query = f"'{parent_folder_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
-    response = service.files().list(q=query, fields="files(id)").execute()
-    folders = response.get("files", [])
+    try:
+        response = service.files().list(q=query, fields="files(id)").execute()
+        folders = response.get("files", [])
 
-    if folders:
-        return folders[0]["id"]  # Folder exists, return its ID
+        if folders:
+            return folders[0]["id"]  # Folder exists, return its ID
 
-    folder_metadata = {
-        "name": folder_name,
-        "mimeType": "application/vnd.google-apps.folder",
-        "parents": [parent_folder_id],
-    }
-    folder = service.files().create(body=folder_metadata, fields="id").execute()
-    return folder.get("id")
+        # Create a new folder
+        folder_metadata = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent_folder_id],
+        }
+        folder = service.files().create(body=folder_metadata, fields="id").execute()
+        return folder.get("id")
+    except HttpError as error:
+        print(f"❌ Error creating folder '{folder_name}': {error}")
+        return None
 
 
 def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR, retries=3):
     """Downloads a specific file from Google Drive."""
     query = f"'{FOLDER_ID}' in parents and name='{file_name}'"
-    results = service.files().list(q=query, fields="files(id, name)").execute()
-    files = results.get("files", [])
-
-    if not files:
-        print(f"⚠️ File {file_name} not found in Google Drive.")
-        return
-
-    file_id = files[0]["id"]
-    file_path = os.path.join(local_dir, file_name)
-
-    for attempt in range(retries):
-        try:
-            request = service.files().get_media(fileId=file_id)
-            with open(file_path, "wb") as file:
-                file.write(request.execute())
-            print(f"✅ Downloaded {file_name} to {file_path}")
+    try:
+        results = service.files().list(q=query, fields="files(id, name)").execute()
+        files = results.get("files", [])
+        if not files:
+            print(f"⚠️ File {file_name} not found in Google Drive.")
             return
-        except HttpError as error:
-            print(
-                f"❌ Error downloading {file_name} (attempt {attempt+1}/{retries}): {error}"
-            )
-            time.sleep(2**attempt)  # Exponential backoff
+
+        file_id = files[0]["id"]
+        file_path = os.path.join(local_dir, file_name)
+
+        for attempt in range(retries):
+            try:
+                request = service.files().get_media(fileId=file_id)
+                with open(file_path, "wb") as file:
+                    file.write(request.execute())
+                print(f"✅ Downloaded {file_name} to {file_path}")
+                return
+            except HttpError as error:
+                print(
+                    f"❌ Error downloading {file_name} (attempt {attempt+1}/{retries}): {error}"
+                )
+                time.sleep(2**attempt)  # Exponential backoff
+    except HttpError as error:
+        print(f"❌ Failed to search for {file_name}: {error}")
 
 
 def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID, retries=3):
     """Uploads a file to Google Drive inside a specified folder."""
     file_name = os.path.basename(file_path)
+
+    # Ensure file exists before uploading
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        print(f"⚠️ Skipping upload: {file_path} does not exist or is empty.")
+        return
+
+    # Determine MIME type based on file extension
     mime_types = {
         ".pdf": "application/pdf",
         ".png": "image/png",
@@ -101,6 +113,7 @@ def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID, ret
         os.path.splitext(file_name)[1], "application/octet-stream"
     )
 
+    # Get or create the subfolder in Google Drive
     if folder_name:
         parent_folder_id = get_or_create_folder(folder_name, parent_folder_id)
 
@@ -148,15 +161,32 @@ def upload_folder_to_drive(local_folder, drive_folder_name, parent_folder_id=FOL
 def delete_file_from_drive(file_name, parent_folder_id=FOLDER_ID):
     """Deletes a file from Google Drive."""
     query = f"'{parent_folder_id}' in parents and name='{file_name}'"
-    results = service.files().list(q=query, fields="files(id)").execute()
-    files = results.get("files", [])
-
-    if not files:
-        print(f"⚠️ File {file_name} not found in Google Drive.")
-        return
-
     try:
+        results = service.files().list(q=query, fields="files(id)").execute()
+        files = results.get("files", [])
+
+        if not files:
+            print(f"⚠️ File {file_name} not found in Google Drive.")
+            return
+
         service.files().delete(fileId=files[0]["id"]).execute()
         print(f"🗑️ Deleted {file_name} from Google Drive.")
     except HttpError as error:
         print(f"❌ Failed to delete {file_name}: {error}")
+
+
+def delete_folder_from_drive(folder_name, parent_folder_id=FOLDER_ID):
+    """Deletes a folder and all its contents from Google Drive."""
+    query = f"'{parent_folder_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
+    try:
+        results = service.files().list(q=query, fields="files(id)").execute()
+        folders = results.get("files", [])
+
+        if not folders:
+            print(f"⚠️ Folder '{folder_name}' not found in Google Drive.")
+            return
+
+        service.files().delete(fileId=folders[0]["id"]).execute()
+        print(f"🗑️ Deleted folder '{folder_name}' from Google Drive.")
+    except HttpError as error:
+        print(f"❌ Failed to delete folder '{folder_name}': {error}")
