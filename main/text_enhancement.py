@@ -5,7 +5,10 @@ import os
 
 import cv2
 import numpy as np
-from drive_utils import create_folder_in_drive, upload_to_drive
+from drive_utils import (
+    get_or_create_folder,  # ✅ Use correct function name
+    upload_to_drive,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -45,10 +48,7 @@ def enhance_image(image_file):
 
         # Advanced denoising
         denoised = cv2.fastNlMeansDenoising(
-            gamma_corrected,
-            h=10,  # Increased filter strength
-            templateWindowSize=11,
-            searchWindowSize=25,
+            gamma_corrected, h=10, templateWindowSize=11, searchWindowSize=25
         )
 
         # Contrast Limited Adaptive Histogram Equalization (CLAHE)
@@ -65,7 +65,7 @@ def enhance_image(image_file):
             255,
             cv2.ADAPTIVE_THRESH_MEAN_C,
             cv2.THRESH_BINARY_INV,
-            blockSize=43,  # Larger block size for better local adaptation
+            blockSize=43,
             C=8,
         )
 
@@ -87,7 +87,7 @@ def enhance_image(image_file):
         logging.info(f"✅ Saved Enhanced Image: {filename}")
 
         # Upload processed image to Google Drive
-        upload_to_drive(output_path, parent_folder_id=enhanced_images_folder_id)
+        upload_to_drive(output_path, folder_name="Text_Enhanced_Images_600dpi")
 
     except Exception as e:
         logging.error(f"🔥 Error processing {filename}: {str(e)}")
@@ -120,7 +120,7 @@ if __name__ == "__main__":
         )
 
         # Create a folder in Google Drive for the enhanced images
-        enhanced_images_folder_id = create_folder_in_drive(
+        enhanced_images_folder_id = get_or_create_folder(  # ✅ Use correct function
             "Text_Enhanced_Images_600dpi",
             parent_folder_id=os.getenv("GDRIVE_FOLDER_ID"),
         )
