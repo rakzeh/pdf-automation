@@ -57,7 +57,9 @@ jobs:
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
-          git pull origin main --rebase
           git add -A
+          git stash  # Stash any unstaged changes
+          git pull origin main --rebase  # Now pull without conflict
+          git stash pop || echo "No stashed changes to apply"
           git commit -m "🧹 Removed PDFs and converted images after syncing" || echo "No changes to commit"
           git push
