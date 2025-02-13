@@ -2,7 +2,10 @@ import os
 
 import cv2
 import numpy as np
-from drive_utils import create_folder_in_drive, upload_to_drive
+from drive_utils import (
+    get_or_create_folder,  # ✅ Use correct function name
+    upload_to_drive,
+)
 from skimage import io
 
 # Define input and output folders
@@ -46,7 +49,7 @@ if image_files:
     print(f"📷 Found {len(image_files)} images in: {input_folder}")
 
     # Create a subfolder in Google Drive for cleaned images
-    watermark_removed_folder_id = create_folder_in_drive(
+    watermark_removed_folder_id = get_or_create_folder(  # ✅ Use correct function
         "Watermark_Removed_Images", parent_folder_id=os.getenv("GDRIVE_FOLDER_ID")
     )
 
