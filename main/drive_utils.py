@@ -2,7 +2,8 @@ import json
 import os
 
 from google.oauth2 import service_account
-from googleapiclient.discovery import build, http
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 # Load service account credentials from environment variable
 SERVICE_ACCOUNT_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT")
