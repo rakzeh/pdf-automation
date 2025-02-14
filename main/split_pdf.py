@@ -76,7 +76,7 @@ for page_number in range(1, total_pages + 1):
         gc.collect()
 
         # Prevent GitHub Actions timeout issues
-        time.sleep(5)
+        time.sleep(10)
 
     except Exception as e:
         print(f"⚠️ ERROR: Could not process Page {page_number}. Reason: {e}")
