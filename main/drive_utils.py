@@ -194,10 +194,8 @@
 
 import json
 import os
-import random
 import time
 
-import google.auth.transport.requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -227,9 +225,6 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 creds = service_account.Credentials.from_service_account_file(
     SERVICE_ACCOUNT_FILE, scopes=SCOPES
 )
-creds.refresh(
-    google.auth.transport.requests.Request()
-)  # Refresh credentials to avoid expiration
 service = build("drive", "v3", credentials=creds)
 
 # Remove the service account file for security
@@ -238,14 +233,6 @@ os.remove(SERVICE_ACCOUNT_FILE)
 # 📂 Define local PDF storage folder
 LOCAL_PDF_DIR = "main/pdfs"
 os.makedirs(LOCAL_PDF_DIR, exist_ok=True)
-
-
-def restart_drive_service():
-    """Restarts the Google Drive API session to prevent SSL errors."""
-    global service, creds
-    creds.refresh(google.auth.transport.requests.Request())  # Refresh token
-    service = build("drive", "v3", credentials=creds)
-    print("🔄 Google Drive API session restarted.")
 
 
 def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
@@ -271,17 +258,43 @@ def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
         return None
 
 
-def upload_to_drive(
-    file_path, folder_name=None, parent_folder_id=FOLDER_ID, retries=10
-):
-    """Uploads a file to Google Drive with exponential backoff and session restarts."""
+def download_from_drive(file_name, local_dir=LOCAL_PDF_DIR, retries=3):
+    """Downloads a specific file from Google Drive with retries."""
+    query = f"'{FOLDER_ID}' in parents and name='{file_name}'"
+    try:
+        results = service.files().list(q=query, fields="files(id, name)").execute()
+        files = results.get("files", [])
+        if not files:
+            print(f"⚠️ File {file_name} not found in Google Drive.")
+            return
+
+        file_id = files[0]["id"]
+        file_path = os.path.join(local_dir, file_name)
+
+        for attempt in range(retries):
+            try:
+                request = service.files().get_media(fileId=file_id)
+                with open(file_path, "wb") as file:
+                    file.write(request.execute())
+                print(f"✅ Downloaded {file_name} to {file_path}")
+                return
+            except HttpError as error:
+                print(
+                    f"❌ Error downloading {file_name} (attempt {attempt+1}/{retries}): {error}"
+                )
+                time.sleep(2**attempt)  # Exponential backoff
+    except HttpError as error:
+        print(f"❌ Failed to search for {file_name}: {error}")
+
+
+def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID, retries=3):
+    """Uploads a file to Google Drive inside a specified folder using resumable upload."""
     file_name = os.path.basename(file_path)
 
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         print(f"⚠️ Skipping upload: {file_path} does not exist or is empty.")
         return
 
-    # Determine MIME type
     mime_types = {
         ".pdf": "application/pdf",
         ".png": "image/png",
@@ -293,7 +306,6 @@ def upload_to_drive(
         os.path.splitext(file_name)[1], "application/octet-stream"
     )
 
-    # Get or create the subfolder in Google Drive
     if folder_name:
         parent_folder_id = get_or_create_folder(folder_name, parent_folder_id)
 
@@ -312,40 +324,5 @@ def upload_to_drive(
             )
             return
         except HttpError as error:
-            wait_time = (2**attempt) + random.uniform(
-                0, 1
-            )  # Exponential backoff with jitter
             print(f"❌ Upload failed (attempt {attempt+1}/{retries}): {error}")
-            print(f"🔄 Retrying in {wait_time:.2f} seconds...")
-            time.sleep(wait_time)
-            restart_drive_service()  # Restart session on persistent failure
-
-    print(f"❌ Upload failed after {retries} attempts. Skipping file: {file_name}")
-
-
-def upload_folder_to_drive(local_folder, drive_folder_name, parent_folder_id=FOLDER_ID):
-    """Uploads all files in a local folder to Google Drive under a specific folder."""
-    if not os.path.exists(local_folder):
-        print(f"⚠️ Local folder '{local_folder}' does not exist. Skipping upload.")
-        return
-
-    drive_folder_id = get_or_create_folder(drive_folder_name, parent_folder_id)
-    files = [
-        f
-        for f in os.listdir(local_folder)
-        if os.path.isfile(os.path.join(local_folder, f))
-    ]
-
-    if not files:
-        print(f"⚠️ No files found in '{local_folder}' to upload.")
-        return
-
-    for i, file_name in enumerate(files):
-        file_path = os.path.join(local_folder, file_name)
-        upload_to_drive(
-            file_path, folder_name=drive_folder_name, parent_folder_id=parent_folder_id
-        )
-
-        # Restart the API session every 10 uploads
-        if (i + 1) % 10 == 0:
-            restart_drive_service()
+            time.sleep(2**attempt)  # Exponential backoff
