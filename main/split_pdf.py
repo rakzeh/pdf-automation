@@ -67,9 +67,13 @@ for page_number in range(1, total_pages + 1):
         image.save(image_path, "PNG")
         print(f"✅ Page {page_number} saved as {image_name}")
 
-        # Upload to Google Drive
-        upload_to_drive(image_path, folder_name=drive_folder_name)
-        print(f"📤 Uploaded '{image_name}' to Google Drive")
+        # Prevent duplicate uploads
+        if not os.path.exists(image_path):
+            time.sleep(5)  # Small delay before upload
+            upload_to_drive(image_path, folder_name=drive_folder_name)
+            print(f"📤 Uploaded '{image_name}' to Google Drive")
+        else:
+            print(f"⚠️ Skipping duplicate upload for '{image_name}'")
 
         # Free memory immediately
         del image
