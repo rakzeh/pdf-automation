@@ -63,6 +63,6 @@ for i, image in enumerate(convert_from_path(final_output_pdf, dpi=600)):
     print(f"📤 Uploaded '{image_name}' to Google Drive")
 
     # Prevent GitHub Actions timeout issues
-    time.sleep(2)
+    time.sleep(5)
 
 print("🎉 PDF converted and uploaded systematically to Drive!")
