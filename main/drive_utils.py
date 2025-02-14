@@ -229,13 +229,8 @@ creds = service_account.Credentials.from_service_account_file(
 )
 creds.refresh(
     google.auth.transport.requests.Request()
-)  # Refresh credentials to avoid SSL issues
-service = build(
-    "drive",
-    "v3",
-    credentials=creds,
-    requestBuilder=google.auth.transport.requests.Request,
-)
+)  # Refresh credentials to avoid expiration
+service = build("drive", "v3", credentials=creds)
 
 # Remove the service account file for security
 os.remove(SERVICE_ACCOUNT_FILE)
@@ -243,6 +238,14 @@ os.remove(SERVICE_ACCOUNT_FILE)
 # 📂 Define local PDF storage folder
 LOCAL_PDF_DIR = "main/pdfs"
 os.makedirs(LOCAL_PDF_DIR, exist_ok=True)
+
+
+def restart_drive_service():
+    """Restarts the Google Drive API session to prevent SSL errors."""
+    global service, creds
+    creds.refresh(google.auth.transport.requests.Request())  # Refresh token
+    service = build("drive", "v3", credentials=creds)
+    print("🔄 Google Drive API session restarted.")
 
 
 def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
@@ -268,8 +271,10 @@ def get_or_create_folder(folder_name, parent_folder_id=FOLDER_ID):
         return None
 
 
-def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID, retries=5):
-    """Uploads a file to Google Drive with exponential backoff."""
+def upload_to_drive(
+    file_path, folder_name=None, parent_folder_id=FOLDER_ID, retries=10
+):
+    """Uploads a file to Google Drive with exponential backoff and session restarts."""
     file_name = os.path.basename(file_path)
 
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
@@ -313,9 +318,7 @@ def upload_to_drive(file_path, folder_name=None, parent_folder_id=FOLDER_ID, ret
             print(f"❌ Upload failed (attempt {attempt+1}/{retries}): {error}")
             print(f"🔄 Retrying in {wait_time:.2f} seconds...")
             time.sleep(wait_time)
-        except Exception as ssl_error:
-            print(f"❌ SSL Error (attempt {attempt+1}/{retries}): {ssl_error}")
-            time.sleep((2**attempt) + random.uniform(0, 1))
+            restart_drive_service()  # Restart session on persistent failure
 
     print(f"❌ Upload failed after {retries} attempts. Skipping file: {file_name}")
 
@@ -345,40 +348,4 @@ def upload_folder_to_drive(local_folder, drive_folder_name, parent_folder_id=FOL
 
         # Restart the API session every 10 uploads
         if (i + 1) % 10 == 0:
-            print("🔄 Restarting Google Drive API session to prevent SSL errors...")
-            global service
-            service = build("drive", "v3", credentials=creds)
-
-
-def delete_file_from_drive(file_name, parent_folder_id=FOLDER_ID):
-    """Deletes a file from Google Drive."""
-    query = f"'{parent_folder_id}' in parents and name='{file_name}'"
-    try:
-        results = service.files().list(q=query, fields="files(id)").execute()
-        files = results.get("files", [])
-
-        if not files:
-            print(f"⚠️ File {file_name} not found in Google Drive.")
-            return
-
-        service.files().delete(fileId=files[0]["id"]).execute()
-        print(f"🗑️ Deleted {file_name} from Google Drive.")
-    except HttpError as error:
-        print(f"❌ Failed to delete {file_name}: {error}")
-
-
-def delete_folder_from_drive(folder_name, parent_folder_id=FOLDER_ID):
-    """Deletes a folder and all its contents from Google Drive."""
-    query = f"'{parent_folder_id}' in parents and name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
-    try:
-        results = service.files().list(q=query, fields="files(id)").execute()
-        folders = results.get("files", [])
-
-        if not folders:
-            print(f"⚠️ Folder '{folder_name}' not found in Google Drive.")
-            return
-
-        service.files().delete(fileId=folders[0]["id"]).execute()
-        print(f"🗑️ Deleted folder '{folder_name}' from Google Drive.")
-    except HttpError as error:
-        print(f"❌ Failed to delete folder '{folder_name}': {error}")
+            restart_drive_service()
