@@ -48,7 +48,7 @@ jobs:
 
       - name: 🔥 Delete Synced Files from Repository
         run: |
-          rm -rf main/pdfs/
+          git rm -r main/pdfs/ || echo "No files to delete"
           echo "🗑️ Removed main/pdfs/ after syncing"
 
       - name: Commit and Push Cleanup
