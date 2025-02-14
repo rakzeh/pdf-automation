@@ -2,10 +2,8 @@ import os
 
 import cv2
 import numpy as np
-from drive_utils import (
-    get_or_create_folder,  # ✅ Use correct function name
-    upload_to_drive,
-)
+from drive_utils import get_or_create_folder  # ✅ Use correct function name
+from drive_utils import upload_to_drive
 from skimage import io
 
 # Define input and output folders
@@ -21,7 +19,7 @@ print(f"📂 Created output directory: {output_folder}")
 # Pixel selection function (Detects watermark pixels)
 def select_watermark_pixel(r, g, b):
     """Detects watermark pixels by checking their color range."""
-    return 150 <= r <= 255 and 150 <= g <= 255 and 150 <= b <= 255
+    return 210 <= r <= 255 and 210 <= g <= 255 and 210 <= b <= 255
 
 
 # Image processing function (Removes watermark)
