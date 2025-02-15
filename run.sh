@@ -37,8 +37,10 @@ bash main/ocr.sh
  echo "Combining Ocr Done Pdfs"
  python main/combine_ocr_pdf.py
 
-# Step 9: Numbering to the pdf's 
-#
+
+# Step 11: Delete processed PDFs from the repo
+echo "🗑️ Cleaning up processed files..."
+bash main/delete.sh  # ✅ Runs the cleanup script
 
 # Step 10: Upload it to drive (Done)
 
